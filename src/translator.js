@@ -57,7 +57,7 @@ export async function translateToChinese(text) {
         const translated = res.data?.choices?.[0]?.message?.content?.trim();
         if (!translated) return null;
 
-        console.log(`🌐 翻译完成 (${text.length} → ${translated.length} 字符)`);
+        console.log(`🌐 翻译: ${translated}`);
         return translated;
     } catch (err) {
         console.error('❌ 翻译失败:', err.response?.data || err.message);
