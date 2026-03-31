@@ -1,45 +1,42 @@
-{
-    "enabled": true,
-    "channels": [
-        {
-            "id": "-1001234567890",
-            "username": "example_channel",
-            "nickname": "示例频道",
-            "link": "https://t.me/example_channel",
-            "enabled": false,
-            "pipeline": [],
-            "forwardTo": {
-                "telegram": [
-                    {
-                        "type": "channel",
-                        "id": "-1009876543210",
-                        "nickname": "目标频道"
-                    },
-                    {
-                        "type": "group",
-                        "id": "-1005555555555",
-                        "topicId": null,
-                        "nickname": "目标群组"
-                    }
-                ]
-            }
-        },
-        {
-            "id": "-1001111111111",
-            "nickname": "英文资讯频道",
-            "link": "https://t.me/english_news",
-            "enabled": false,
-            "pipeline": ["translate"],
-            "forwardTo": {
-                "telegram": [
-                    {
-                        "type": "group",
-                        "id": "-1002222222222",
-                        "topicId": "123",
-                        "nickname": "中文讨论群-资讯话题"
-                    }
-                ]
-            }
+[
+    {
+        "id": "-1001234567890",
+        "username": "example_channel",
+        "nickname": "示例频道",
+        "link": "https://t.me/example_channel",
+        "enabled": false,
+        "pipeline": [],
+        "forwardTo": {
+            "telegram": [
+                {
+                    "type": "channel",
+                    "id": "-1009876543210",
+                    "nickname": "目标频道"
+                },
+                {
+                    "type": "group",
+                    "id": "-1005555555555",
+                    "topicId": null,
+                    "nickname": "目标群组"
+                }
+            ]
         }
-    ]
-}
+    },
+    {
+        "id": "-1001111111111",
+        "nickname": "英文资讯频道",
+        "link": "https://t.me/english_news",
+        "enabled": false,
+        "pipeline": ["translate"],
+        "forwardTo": {
+            "telegram": [
+                {
+                    "type": "group",
+                    "id": "-1002222222222",
+                    "topicId": "123",
+                    "nickname": "中文讨论群-资讯话题"
+                }
+            ]
+        }
+    }
+]

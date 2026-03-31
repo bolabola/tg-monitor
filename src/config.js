@@ -17,7 +17,7 @@ const loadChannelConfig = () => {
     } catch (error) {
         console.warn('⚠️ Failed to load channels.config.json:', error.message);
     }
-    return { enabled: false, channels: [] };
+    return [];
 };
 
 const config = {
@@ -28,7 +28,7 @@ const config = {
             apiHash: process.env.TELEGRAM_API_HASH,
             session: process.env.TELEGRAM_SESSION
         },
-        channelConfig: loadChannelConfig()
+        channels: loadChannelConfig()
     },
     deepseek: {
         apiKey: process.env.DEEPSEEK_API_KEY || '',

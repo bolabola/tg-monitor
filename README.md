@@ -2,6 +2,17 @@
 
 Telegram 频道/群组消息监控与转发服务。通过 MTProto 用户客户端监听指定频道的新消息，经 pipeline 处理后，通过 Bot API 转发到目标频道/群组。
 
+## 架构
+
+采用「实时推送 + 定时拉取」双通道架构，确保不漏消息：
+
+- **实时推送**：通过 MTProto Raw Update Handler 监听 `UpdateNewChannelMessage`，对小型/自建频道提供亚秒级延迟
+- **定时拉取**：每 5s 对所有频道调用 `getMessages()`，覆盖大型公共频道不推送更新的情况
+- **去重队列**：两个通道的消息统一进入 `MessageQueue`，通过 `channelId:msgId` 去重，per-channel 串行处理保证顺序
+- **Gap 检测**：实时推送收到非连续消息 ID 时自动触发即时拉取
+- **Bot API 限流**：令牌桶算法（全局 25/s + 单聊天 18/min），超限自动等待
+- **断线恢复**：心跳检测断线后自动重连并立即触发全频道拉取
+
 ## 快速开始
 
 ```bash
@@ -13,6 +24,9 @@ cp .env.example .env
 cp channels.config.example.json channels.config.json
 
 # 按下文指引填写 .env 和 channels.config.json
+
+# 获取 Telegram Session
+node gen-session.js
 
 # 启动（开发）
 npm run dev
@@ -122,21 +136,35 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 
 ---
 
+## 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `TELEGRAM_BOT_TOKEN` | Bot Token，用于转发消息 | 必填 |
+| `TELEGRAM_API_ID` | MTProto API ID | 必填 |
+| `TELEGRAM_API_HASH` | MTProto API Hash | 必填 |
+| `TELEGRAM_SESSION` | MTProto Session 字符串 | 必填 |
+| `FETCH_INTERVAL_MS` | 定时拉取间隔（毫秒） | `5000` |
+| `FETCH_ON_START` | 启动时是否拉取离线期间的消息 | `true` |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key（翻译用） | 可选 |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | DeepSeek 模型 | `deepseek-chat` |
+
+---
+
 ## 频道配置
 
 编辑 `channels.config.json`，参考 `channels.config.example.json`：
 
 ```json
-{
-    "enabled": true,
-    "channels": [
-        {
-            "id": "-1001234567890",
-            "nickname": "我的频道",
-            "link": "https://t.me/my_channel",
-            "enabled": true,
-            "pipeline": ["translate"],
-            "forwardTo": {
+[
+    {
+        "id": "-1001234567890",
+        "nickname": "我的频道",
+        "link": "https://t.me/my_channel",
+        "enabled": true,
+        "pipeline": ["translate"],
+        "forwardTo": {
                 "telegram": [
                     {
                         "type": "group",
@@ -147,8 +175,7 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
                 ]
             }
         }
-    ]
-}
+]
 ```
 
 ### 字段说明
@@ -156,7 +183,7 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 | 字段 | 说明 |
 |------|------|
 | `id` | 源频道/群组的 Chat ID |
-| `nickname` | 显示名称（仅用于日志） |
+| `nickname` | 显示名称（仅用于日志和转发标题） |
 | `link` | 频道链接，方便查找 |
 | `enabled` | 是否启用监听 |
 | `pipeline` | 处理器管道，按顺序执行。`[]` 表示原样转发 |
@@ -206,3 +233,28 @@ export default function (ctx) {
 处理器接口：
 - **参数**：`ctx` 对象，包含 `text`（文本）、`forwardMedia`（是否转发媒体）、`channelConfig`（频道配置）、`message`（GramJS 原始消息）
 - **返回**：修改后的 `ctx`（继续 pipeline）或 `null`（跳过此消息）
+
+## 项目结构
+
+```
+tg-monitor/
+├── app.js                  # 入口，进程管理
+├── gen-session.js          # Session 获取脚本
+├── ecosystem.config.cjs    # PM2 配置
+├── channels.config.json    # 频道配置（gitignore）
+├── .env                    # 环境变量（gitignore）
+├── .state.json             # 运行状态（gitignore）
+├── src/
+│   ├── config.js           # 配置加载
+│   ├── monitor.js          # 核心：双通道入口 + Pipeline
+│   ├── queue.js            # 去重队列 + Gap 检测
+│   ├── forwarder.js        # Bot API 转发
+│   ├── rate-limiter.js     # 令牌桶限流
+│   ├── state.js            # lastMessageId 持久化
+│   ├── translator.js       # DeepSeek 翻译
+│   └── utils.js            # 公共工具函数
+└── handlers/
+    ├── translate.js         # 翻译处理器
+    ├── noMedia.js           # 过滤媒体处理器
+    └── example.js           # 示例处理器
+```

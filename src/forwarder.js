@@ -1,6 +1,7 @@
 import axios from 'axios';
 import FormData from 'form-data';
 import config from './config.js';
+import { rateLimiter } from './rate-limiter.js';
 
 const BOT_TOKEN = config.telegram.bot_token;
 const BASE_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -47,6 +48,7 @@ async function sendText(text, chatId, threadId = null) {
     const body = {
         chat_id: chatId,
         text: truncate(text, MAX_TEXT),
+        parse_mode: 'HTML',
         disable_web_page_preview: true
     };
     if (threadId) body.message_thread_id = threadId;
@@ -65,22 +67,27 @@ async function sendMedia(type, buffer, chatId, caption = '', threadId = null, fi
     form.append(type, buffer, { filename: fileName });
     if (caption && type !== 'sticker') {
         form.append('caption', truncate(caption, MAX_CAPTION));
+        form.append('parse_mode', 'HTML');
     }
     if (threadId) form.append('message_thread_id', threadId.toString());
 
     return apiCall(method, form, true);
 }
 
-async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileName }, sourceTitle) {
+async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileName, sourceLink }, sourceTitle) {
     try {
+        await rateLimiter.acquire(target.id);
         const topicId = target.topicId ? parseInt(target.topicId) : null;
-        const header = `[TG 转发] 来自: ${sourceTitle}`;
+
+        const footer = sourceLink
+            ? ` — <a href="${sourceLink}">${sourceTitle}</a>`
+            : ` — ${sourceTitle}`;
 
         if (mediaBuffer && mediaType) {
-            const caption = text ? `${header}\n\n${text}` : header;
+            const caption = text ? `${text}${footer}` : sourceTitle;
             await sendMedia(mediaType, mediaBuffer, target.id, caption, topicId, fileName);
         } else if (text) {
-            await sendText(`${header}\n\n${text}`, target.id, topicId);
+            await sendText(`${text}${footer}`, target.id, topicId);
         }
 
         console.log(`✅ 已转发到 [${target.nickname || target.id}]`);

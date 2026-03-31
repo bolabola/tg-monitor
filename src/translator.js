@@ -66,7 +66,7 @@ export async function translateToChinese(text) {
 }
 
 /**
- * 如果文本不是中文，自动翻译并拼接原文 + 译文。
+ * 如果文本不是中文，自动翻译并返回译文。
  * 已经是中文或翻译失败时返回原文不变。
  */
 export async function autoTranslate(text) {
@@ -75,5 +75,5 @@ export async function autoTranslate(text) {
     const translated = await translateToChinese(text);
     if (!translated) return text;
 
-    return `${text}\n\n——— 🌐 自动翻译 ———\n${translated}`;
+    return translated;
 }
