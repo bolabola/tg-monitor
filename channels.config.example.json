@@ -1,29 +1,29 @@
 [
     {
-        "source": { "id": "-1001234567890", "note": "示例频道" },
         "enabled": false,
         "pipeline": [],
+        "source": { "id": "-1001234567890", "note": "示例频道" },
         "to": [
             { "id": "-1009876543210", "note": "目标频道 A" },
             { "id": "-1005555555555", "note": "目标群 B" }
         ]
     },
     {
+        "enabled": false,
+        "pipeline": ["translate"],
         "source": [
             { "id": "-1001111111111", "note": "英文源 A" },
             { "id": "-1002222222222", "note": "英文源 B", "pipeline": [] }
         ],
-        "enabled": false,
-        "pipeline": ["translate"],
         "to": { "id": "-1003333333333", "topicId": "123", "note": "汇总群话题" }
     },
     {
+        "enabled": false,
+        "pipeline": [],
         "source": [
             { "id": "-1004444444444" },
             { "id": "-1005555555555" }
         ],
-        "enabled": false,
-        "pipeline": [],
         "to": [
             { "id": "-1006666666666", "note": "目标 1" },
             { "id": "-1007777777777", "note": "目标 2" }

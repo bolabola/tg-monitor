@@ -154,7 +154,9 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 
 ## 频道配置
 
-编辑 `channels.config.json`，参考 `channels.config.example.json`。配置文件是一个**规则数组**：每条规则写一组共享的 `to`、规则级默认的 `enabled` / `pipeline`，以及一个或多个 `source`（各源可单独覆盖 `enabled` / `pipeline`）。
+编辑 `channels.config.json`，参考 `channels.config.example.json`。配置文件是一个**规则数组**：每条规则写规则级默认的 `enabled` / `pipeline`、一个或多个 `source`（各源可单独覆盖），以及共享的 `to`。
+
+**推荐书写顺序**（便于一眼看出公共项）：`enabled` → `pipeline` → `source` → `to`。JSON 不强制键顺序，解析结果相同。
 
 ### 拓扑：1 转多 / 多转 1 / 多转多
 
@@ -182,20 +184,21 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 ```json
 [
     {
-        "source": { "id": "-1001234567890", "note": "我的频道" },
+        "enabled": true,
         "pipeline": ["translate"],
+        "source": { "id": "-1001234567890", "note": "我的频道" },
         "to": [
             { "id": "-1005555555555", "topicId": "123", "note": "群话题 A" },
             { "id": "-1006666666666", "note": "备份群" }
         ]
     },
     {
+        "enabled": true,
+        "pipeline": ["translate"],
         "source": [
             { "id": "-1001111111111", "note": "源 A" },
             { "id": "-1002222222222", "note": "源 B", "pipeline": [] }
         ],
-        "enabled": true,
-        "pipeline": ["translate"],
         "to": { "id": "-1003333333333", "note": "汇总群" }
     }
 ]
@@ -207,16 +210,18 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 
 ### 字段说明
 
+（表中顺序与推荐书写顺序一致：先公共，再 `source`，再 `to`。）
+
 | 字段 | 说明 |
 |------|------|
+| `enabled` | 规则级**默认**；缺省 `true`；源未写 `enabled` 时用此项 |
+| `pipeline` | 规则级**默认**，**须为数组**；缺省或非数组时视为 `[]`；源未写 `pipeline` 时用此项 |
 | `source` | **必填**。`{ "id", "username"?, "note"?, "enabled"?, "pipeline"? }` 或此类对象的**数组**（多源）。**不允许**顶层字符串 ID |
 | `source.id` / `source[].id` | 源 Chat ID |
 | `source.note` / `source[].note` | 源备注（日志、转发来源标题等），可选 |
 | `source.username` / `source[].username` | 可选，用于 `@username` 映射 |
 | `source.enabled` / `source[].enabled` | 可选，覆盖规则顶层的 `enabled` |
 | `source.pipeline` / `source[].pipeline` | 可选，覆盖规则顶层的 `pipeline`（非数组则视为 `[]`） |
-| `enabled` | 规则级**默认**；缺省 `true`；源未写 `enabled` 时用此项 |
-| `pipeline` | 规则级**默认**，**须为数组**；缺省或非数组时视为 `[]`；源未写 `pipeline` 时用此项 |
 | `to` | **必填**，整条规则共用。`{ "id", "topicId"?, "note"? }` 或此类对象的**数组**（多目标）。**不允许**顶层字符串 ID |
 | `to.id` / `to[].id` | 目标 Chat ID |
 | `to.topicId` / `to[].topicId` | 论坛话题 ID；普通群可省略 |
