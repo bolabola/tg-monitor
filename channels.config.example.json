@@ -1,42 +1,32 @@
 [
     {
-        "id": "-1001234567890",
-        "username": "example_channel",
-        "nickname": "示例频道",
-        "link": "https://t.me/example_channel",
+        "source": { "id": "-1001234567890", "note": "示例频道" },
         "enabled": false,
         "pipeline": [],
-        "forwardTo": {
-            "telegram": [
-                {
-                    "type": "channel",
-                    "id": "-1009876543210",
-                    "nickname": "目标频道"
-                },
-                {
-                    "type": "group",
-                    "id": "-1005555555555",
-                    "topicId": null,
-                    "nickname": "目标群组"
-                }
-            ]
-        }
+        "to": [
+            { "id": "-1009876543210", "note": "目标频道 A" },
+            { "id": "-1005555555555", "note": "目标群 B" }
+        ]
     },
     {
-        "id": "-1001111111111",
-        "nickname": "英文资讯频道",
-        "link": "https://t.me/english_news",
+        "source": [
+            { "id": "-1001111111111", "note": "英文源 A" },
+            { "id": "-1002222222222", "note": "英文源 B", "pipeline": [] }
+        ],
         "enabled": false,
         "pipeline": ["translate"],
-        "forwardTo": {
-            "telegram": [
-                {
-                    "type": "group",
-                    "id": "-1002222222222",
-                    "topicId": "123",
-                    "nickname": "中文讨论群-资讯话题"
-                }
-            ]
-        }
+        "to": { "id": "-1003333333333", "topicId": "123", "note": "汇总群话题" }
+    },
+    {
+        "source": [
+            { "id": "-1004444444444" },
+            { "id": "-1005555555555" }
+        ],
+        "enabled": false,
+        "pipeline": [],
+        "to": [
+            { "id": "-1006666666666", "note": "目标 1" },
+            { "id": "-1007777777777", "note": "目标 2" }
+        ]
     }
 ]

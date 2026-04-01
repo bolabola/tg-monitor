@@ -8,7 +8,7 @@ import config from './config.js';
 import { forwardToAllTargets } from './forwarder.js';
 import { loadState, getLastMessageId, setLastMessageId, flushState } from './state.js';
 import { MessageQueue } from './queue.js';
-import { normalizeId } from './utils.js';
+import { normalizeId, labelNoteOrId } from './utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -125,28 +125,28 @@ async function fetchAll(enabledChannels, messageQueue) {
     if (fetching) return;
     fetching = true;
     try {
-    for (const ch of enabledChannels) {
-        try {
-            const channelId = normalizeId(ch.id);
-            const lastId = getLastMessageId(channelId);
-            const msgs = await client.getMessages(ch.id, {
-                limit: 20,
-                minId: lastId
-            });
+        for (const ch of enabledChannels) {
+            try {
+                const channelId = normalizeId(ch.id);
+                const lastId = getLastMessageId(channelId);
+                const msgs = await client.getMessages(ch.id, {
+                    limit: 20,
+                    minId: lastId
+                });
 
-            let count = 0;
-            for (const msg of [...msgs].reverse()) {
-                if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
+                let count = 0;
+                for (const msg of [...msgs].reverse()) {
+                    if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
+                }
+                if (count > 0) {
+                    console.log(`🔄 [定时拉取] ${labelNoteOrId(ch)}: 拉取 ${count} 条新消息`);
+                }
+            } catch (e) {
+                console.error(`❌ [定时拉取] ${labelNoteOrId(ch)} 失败:`, e.message);
             }
-            if (count > 0) {
-                console.log(`🔄 [定时拉取] ${ch.nickname || ch.id}: 拉取 ${count} 条新消息`);
-            }
-        } catch (e) {
-            console.error(`❌ [定时拉取] ${ch.nickname || ch.id} 失败:`, e.message);
+
+            await new Promise(r => setTimeout(r, FETCH_STAGGER));
         }
-
-        await new Promise(r => setTimeout(r, FETCH_STAGGER));
-    }
     } finally {
         fetching = false;
     }
@@ -166,10 +166,10 @@ async function fetchChannel(ch, messageQueue) {
             if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
         }
         if (count > 0) {
-            console.log(`🔄 [gap 拉取] ${ch.nickname || ch.id}: 拉取 ${count} 条消息`);
+            console.log(`🔄 [gap 拉取] ${labelNoteOrId(ch)}: 拉取 ${count} 条消息`);
         }
     } catch (e) {
-        console.error(`❌ [gap 拉取] ${ch.nickname || ch.id} 失败:`, e.message);
+        console.error(`❌ [gap 拉取] ${labelNoteOrId(ch)} 失败:`, e.message);
     }
 }
 
@@ -218,7 +218,7 @@ export const startMonitor = async () => {
     console.log(`📡 监听 ${enabledChannels.length} 个频道:`);
     enabledChannels.forEach(ch => {
         const pipe = ch.pipeline?.length ? ch.pipeline.join(' → ') : '(直接转发)';
-        console.log(`   - ${ch.nickname || ch.id} (${ch.id})  [${pipe}]`);
+        console.log(`   - ${labelNoteOrId(ch)} (${ch.id})  [${pipe}]`);
     });
 
     const stringSession = new StringSession(session);
@@ -247,7 +247,7 @@ export const startMonitor = async () => {
             const latest = msgs[0]?.message || '(无文本/媒体消息)';
             console.log(`  ✅ 已订阅: ${entity.title || ch.id} (${entity.id}) 最新消息: ${latest.substring(0, 50)}`);
         } catch (e) {
-            console.error(`  ❌ 订阅失败: ${ch.nickname || ch.id} — ${e.message}`);
+            console.error(`  ❌ 订阅失败: ${labelNoteOrId(ch)} — ${e.message}`);
             console.error(`     请确认该账号已加入此频道/群组`);
         }
     }
@@ -258,7 +258,7 @@ export const startMonitor = async () => {
         const text = message.message || '';
 
         console.log(
-            `📩 [${channelConfig.nickname || channelConfig.id}]: ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}`
+            `📩 [${labelNoteOrId(channelConfig)}]: ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}`
         );
 
         const pipeline = channelConfig.pipeline || [];
@@ -282,7 +282,7 @@ export const startMonitor = async () => {
         }
 
         if (ctx.text || mediaBuffer) {
-            const sourceTitle = channelConfig.nickname || 'Unknown';
+            const sourceTitle = labelNoteOrId(channelConfig);
             const sourceLink = channelConfig.link && message.id
                 ? `${channelConfig.link}/${message.id}` : null;
             await forwardToAllTargets(channelConfig, {
@@ -302,7 +302,7 @@ export const startMonitor = async () => {
     const messageQueue = new MessageQueue({
         onProcess: processMessage,
         onGap: (channelConfig, lastId, newId) => {
-            console.warn(`⚠️ [${channelConfig.nickname || channelConfig.id}] 检测到消息 gap (${lastId} → ${newId})，触发拉取`);
+            console.warn(`⚠️ [${labelNoteOrId(channelConfig)}] 检测到消息 gap (${lastId} → ${newId})，触发拉取`);
             fetchChannel(channelConfig, messageQueue);
         }
     });

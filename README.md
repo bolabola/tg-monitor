@@ -154,44 +154,73 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 
 ## 频道配置
 
-编辑 `channels.config.json`，参考 `channels.config.example.json`：
+编辑 `channels.config.json`，参考 `channels.config.example.json`。配置文件是一个**规则数组**：每条规则写一组共享的 `to`、规则级默认的 `enabled` / `pipeline`，以及一个或多个 `source`（各源可单独覆盖 `enabled` / `pipeline`）。
+
+### 拓扑：1 转多 / 多转 1 / 多转多
+
+| 模式 | 写法 |
+|------|------|
+| **1 转多** | 单个 `source` + `to` 为**多个**目标（用数组） |
+| **多转 1** | `source` 为**数组**（多个源）+ `to` 为**一个**目标对象 |
+| **多转多** | `source` 数组 + `to` 数组；每个源向全部目标各发一份 |
+
+**`source` 与 `to` 约定：**
+
+- 监听端、目标端的**每一项**都是含 `id` 的**非数组对象**；多个源或多个目标时，对应写 **`source` 数组** 或 **`to` 数组**。**不允许**用裸 Chat ID 字符串代替 `{ "id": "..." }`。
+- **`source`** 写在规则里，可为单个对象或对象数组；项上可写 `note`、`username`，以及可选的 **`enabled` / `pipeline`**（覆盖本条规则顶层的默认值）。
+- **`to` 只能写在规则顶层**（整条规则共用），可为单个目标对象或目标数组；目标项上可写 `note`、`topicId`。无 `telegram` 等渠道嵌套。
+
+多源时，**`to` 只在规则顶层写一份**，该条规则里所有 `source` 共用同一组转发目标。**`enabled`、`pipeline` 以规则顶层为公共默认**；某个源需要不同行为时，在对应的 **`source` / `source[]` 对象**里写 `enabled` 或 `pipeline`，**有则覆盖，没有则用公共的**。
+
+### 源与目标
+
+- **每个源 Chat ID 全局只能出现一次**（含同一条规则里的 `source` 数组也不能写重复 id）；违反则启动时报错退出。每个源展开后有**唯一**的 `enabled` / `pipeline`（规则默认 + 源上可选覆盖）。
+- **同一个转发目标 `to` 可以出现多次**：多个不同源可以在各自规则里写相同的 `to`（或复制相同目标对象），互不影响。
+
+### 示例
 
 ```json
 [
     {
-        "id": "-1001234567890",
-        "nickname": "我的频道",
-        "link": "https://t.me/my_channel",
+        "source": { "id": "-1001234567890", "note": "我的频道" },
+        "pipeline": ["translate"],
+        "to": [
+            { "id": "-1005555555555", "topicId": "123", "note": "群话题 A" },
+            { "id": "-1006666666666", "note": "备份群" }
+        ]
+    },
+    {
+        "source": [
+            { "id": "-1001111111111", "note": "源 A" },
+            { "id": "-1002222222222", "note": "源 B", "pipeline": [] }
+        ],
         "enabled": true,
         "pipeline": ["translate"],
-        "forwardTo": {
-                "telegram": [
-                    {
-                        "type": "group",
-                        "id": "-1005555555555",
-                        "topicId": "123",
-                        "nickname": "目标群组"
-                    }
-                ]
-            }
-        }
+        "to": { "id": "-1003333333333", "note": "汇总群" }
+    }
 ]
 ```
+
+上例中「源 B」写了 `pipeline: []`，覆盖公共的 `["translate"]`；未写 `enabled` 则用规则顶层的 `true`。
+
+`enabled` 缺省为 `true`，`pipeline` 缺省为 `[]`；启动后会根据 Telegram 实体自动补全源链接（用于转发文末跳转），**不必**在配置里写 `link`。
 
 ### 字段说明
 
 | 字段 | 说明 |
 |------|------|
-| `id` | 源频道/群组的 Chat ID |
-| `nickname` | 显示名称（仅用于日志和转发标题） |
-| `link` | 频道链接，方便查找 |
-| `enabled` | 是否启用监听 |
-| `pipeline` | 处理器管道，按顺序执行。`[]` 表示原样转发 |
-| `forwardTo.telegram` | 转发目标列表 |
-| `forwardTo.telegram[].type` | `channel` 或 `group` |
-| `forwardTo.telegram[].id` | 目标 Chat ID |
-| `forwardTo.telegram[].topicId` | 论坛话题 ID（非论坛群组填 `null`） |
-| `forwardTo.telegram[].nickname` | 目标显示名称（仅用于日志） |
+| `source` | **必填**。`{ "id", "username"?, "note"?, "enabled"?, "pipeline"? }` 或此类对象的**数组**（多源）。**不允许**顶层字符串 ID |
+| `source.id` / `source[].id` | 源 Chat ID |
+| `source.note` / `source[].note` | 源备注（日志、转发来源标题等），可选 |
+| `source.username` / `source[].username` | 可选，用于 `@username` 映射 |
+| `source.enabled` / `source[].enabled` | 可选，覆盖规则顶层的 `enabled` |
+| `source.pipeline` / `source[].pipeline` | 可选，覆盖规则顶层的 `pipeline`（非数组则视为 `[]`） |
+| `enabled` | 规则级**默认**；缺省 `true`；源未写 `enabled` 时用此项 |
+| `pipeline` | 规则级**默认**，**须为数组**；缺省或非数组时视为 `[]`；源未写 `pipeline` 时用此项 |
+| `to` | **必填**，整条规则共用。`{ "id", "topicId"?, "note"? }` 或此类对象的**数组**（多目标）。**不允许**顶层字符串 ID |
+| `to.id` / `to[].id` | 目标 Chat ID |
+| `to.topicId` / `to[].topicId` | 论坛话题 ID；普通群可省略 |
+| `to.note` / `to[].note` | 目标备注（日志用），可选 |
 
 ## Pipeline 处理器
 

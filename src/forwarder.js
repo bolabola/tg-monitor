@@ -2,6 +2,7 @@ import axios from 'axios';
 import FormData from 'form-data';
 import config from './config.js';
 import { rateLimiter } from './rate-limiter.js';
+import { labelNoteOrId } from './utils.js';
 
 const BOT_TOKEN = config.telegram.bot_token;
 const BASE_URL = `https://api.telegram.org/bot${BOT_TOKEN}`;
@@ -90,14 +91,14 @@ async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileNam
             await sendText(`${text}${footer}`, target.id, topicId);
         }
 
-        console.log(`✅ 已转发到 [${target.nickname || target.id}]`);
+        console.log(`✅ 已转发到 [${labelNoteOrId(target)}]`);
     } catch (error) {
-        console.error(`❌ 转发到 [${target.nickname || target.id}] 失败:`, error.message);
+        console.error(`❌ 转发到 [${labelNoteOrId(target)}] 失败:`, error.message);
     }
 }
 
 export const forwardToAllTargets = async (channelConfig, payload, sourceTitle) => {
-    const targets = channelConfig.forwardTo?.telegram;
+    const targets = channelConfig.to;
     if (!targets?.length) return;
 
     await Promise.allSettled(
