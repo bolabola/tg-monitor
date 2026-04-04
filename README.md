@@ -145,7 +145,7 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 | `TELEGRAM_API_HASH` | MTProto API Hash | 必填 |
 | `TELEGRAM_SESSION` | MTProto Session 字符串 | 必填 |
 | `FETCH_INTERVAL_MS` | 定时拉取间隔（毫秒） | `5000` |
-| `FETCH_ON_START` | 启动时是否拉取离线期间的消息 | `true` |
+| `FETCH_ON_START` | `true`：启动时用 `.state.json` 游标拉取离线区间；`false`：**将游标对齐到当前最新**，不处理停机期间的积压（定时拉取只跟之后的新消息） | `true` |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key（翻译用） | 可选 |
 | `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | DeepSeek 模型 | `deepseek-chat` |

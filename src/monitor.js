@@ -244,12 +244,21 @@ export const startMonitor = async () => {
                 ch.link = `https://t.me/c/${entity.id}`;
             }
             const msgs = await client.getMessages(ch.id, { limit: 1 });
-            const latest = msgs[0]?.message || '(无文本/媒体消息)';
+            const head = msgs[0];
+            const latest = head?.message || '(无文本/媒体消息)';
             console.log(`  ✅ 已订阅: ${entity.title || ch.id} (${entity.id}) 最新消息: ${latest.substring(0, 50)}`);
+            if (!FETCH_ON_START && head?.id != null) {
+                setLastMessageId(normalizeId(ch.id), head.id);
+            }
         } catch (e) {
             console.error(`  ❌ 订阅失败: ${labelNoteOrId(ch)} — ${e.message}`);
             console.error(`     请确认该账号已加入此频道/群组`);
         }
+    }
+
+    if (!FETCH_ON_START) {
+        flushState();
+        console.log('⏭️ FETCH_ON_START=false：已将各频道 lastMessageId 对齐到当前最新，跳过离线积压（仅处理之后的新消息）');
     }
 
     // ─── 消息处理回调 ─────────────────────────────────────────
@@ -344,10 +353,8 @@ export const startMonitor = async () => {
     startHeartbeat(enabledChannels, messageQueue);
 
     if (FETCH_ON_START) {
-        console.log(`🔄 首次启动拉取...`);
+        console.log(`🔄 启动时拉取离线区间...`);
         await fetchAll(enabledChannels, messageQueue);
-    } else {
-        console.log('⏭️ 跳过首次拉取 (FETCH_ON_START=false)');
     }
 
     fetchTimer = setInterval(
