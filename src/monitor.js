@@ -114,15 +114,28 @@ let fetching = false;
 
 async function fetchNewMessages(ch, messageQueue, reason) {
     const channelId = normalizeId(ch.id);
-    const lastId = getLastMessageId(channelId);
+    let cursor = getLastMessageId(channelId);
     let count = 0;
+    const pageSize = 100;
 
-    for await (const msg of client.iterMessages(ch.id, {
-        reverse: true,
-        minId: lastId,
-        waitTime: 0
-    })) {
-        if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
+    while (true) {
+        const msgs = await client.getMessages(ch.id, {
+            limit: pageSize,
+            minId: cursor
+        });
+
+        if (!msgs.length) break;
+
+        const ordered = [...msgs].reverse();
+        for (const msg of ordered) {
+            if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
+        }
+
+        const latestId = ordered[ordered.length - 1]?.id;
+        if (!latestId || latestId <= cursor) break;
+        cursor = latestId;
+
+        if (msgs.length < pageSize) break;
     }
 
     if (count > 0) {
