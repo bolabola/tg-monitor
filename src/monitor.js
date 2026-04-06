@@ -119,7 +119,8 @@ async function fetchNewMessages(ch, messageQueue, reason) {
 
     for await (const msg of client.iterMessages(ch.id, {
         reverse: true,
-        minId: lastId
+        minId: lastId,
+        waitTime: 0
     })) {
         if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
     }
