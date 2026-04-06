@@ -16,11 +16,10 @@ let client = null;
 let heartbeatTimer = null;
 let fetchTimer = null;
 
-const FETCH_INTERVAL = parseInt(process.env.FETCH_INTERVAL_MS || process.env.CATCHUP_INTERVAL_MS) || 5_000;
+const FETCH_INTERVAL = parseInt(process.env.FETCH_INTERVAL_MS || process.env.CATCHUP_INTERVAL_MS, 10) || 5_000;
 const FETCH_STAGGER = 500;
 const FETCH_ON_START = (process.env.FETCH_ON_START || process.env.CATCHUP_ON_START) !== 'false';
-
-// ─── 频道匹配 ─────────────────────────────────────────────────
+const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 
 function buildChannelMap(channels) {
     const map = new Map();
@@ -31,10 +30,6 @@ function buildChannelMap(channels) {
     return map;
 }
 
-// ─── 媒体检测 ─────────────────────────────────────────────────
-
-const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
-
 function detectMedia(message) {
     const media = message.media;
     if (!media) return null;
@@ -43,38 +38,36 @@ function detectMedia(message) {
         return { type: 'photo', fileName: 'photo.jpg' };
     }
 
-    if (media.className === 'MessageMediaDocument') {
-        const doc = media.document;
-        if (!doc) return null;
+    if (media.className !== 'MessageMediaDocument') return null;
 
-        const mime = doc.mimeType || '';
-        const attrs = doc.attributes || [];
-        const nameAttr = attrs.find(a => a.className === 'DocumentAttributeFilename');
-        const fileName = nameAttr?.fileName || 'file';
+    const doc = media.document;
+    if (!doc) return null;
 
-        if (attrs.some(a => a.className === 'DocumentAttributeSticker'))
-            return { type: 'sticker', fileName: fileName || 'sticker.webp' };
+    const mime = doc.mimeType || '';
+    const attrs = doc.attributes || [];
+    const nameAttr = attrs.find(a => a.className === 'DocumentAttributeFilename');
+    const fileName = nameAttr?.fileName || 'file';
 
-        if (attrs.some(a => a.className === 'DocumentAttributeAnimated') || mime === 'image/gif')
-            return { type: 'animation', fileName };
-
-        if (mime.startsWith('video/')) {
-            const isRound = attrs.some(a => a.className === 'DocumentAttributeVideo' && a.roundMessage);
-            return { type: isRound ? 'video_note' : 'video', fileName };
-        }
-
-        if (mime.startsWith('audio/') || attrs.some(a => a.className === 'DocumentAttributeAudio')) {
-            const isVoice = attrs.some(a => a.className === 'DocumentAttributeAudio' && a.voice);
-            return { type: isVoice ? 'voice' : 'audio', fileName };
-        }
-
-        return { type: 'document', fileName };
+    if (attrs.some(a => a.className === 'DocumentAttributeSticker')) {
+        return { type: 'sticker', fileName: fileName || 'sticker.webp' };
     }
 
-    return null;
-}
+    if (attrs.some(a => a.className === 'DocumentAttributeAnimated') || mime === 'image/gif') {
+        return { type: 'animation', fileName };
+    }
 
-// ─── Pipeline 处理器 ──────────────────────────────────────────
+    if (mime.startsWith('video/')) {
+        const isRound = attrs.some(a => a.className === 'DocumentAttributeVideo' && a.roundMessage);
+        return { type: isRound ? 'video_note' : 'video', fileName };
+    }
+
+    if (mime.startsWith('audio/') || attrs.some(a => a.className === 'DocumentAttributeAudio')) {
+        const isVoice = attrs.some(a => a.className === 'DocumentAttributeAudio' && a.voice);
+        return { type: isVoice ? 'voice' : 'audio', fileName };
+    }
+
+    return { type: 'document', fileName };
+}
 
 async function loadProcessors() {
     const processors = {};
@@ -92,9 +85,9 @@ async function loadProcessors() {
             const mod = await import(pathToFileURL(filePath).href);
             const name = file.replace('.js', '');
             processors[name] = mod.default || mod.handler;
-            console.log(`  📦 处理器已加载: ${name}`);
+            console.log(`processor loaded: ${name}`);
         } catch (e) {
-            console.warn(`  ⚠️ 处理器 ${file} 加载失败:`, e.message);
+            console.warn(`processor load failed: ${file}`, e.message);
         }
     }
 
@@ -107,7 +100,7 @@ async function runPipeline(pipeline, processors, text, channelConfig, message) {
     for (const step of pipeline) {
         const proc = processors[step];
         if (!proc) {
-            console.warn(`⚠️ 未找到处理器: ${step}，跳过该步骤`);
+            console.warn(`processor not found: ${step}`);
             continue;
         }
         ctx = await proc(ctx, channelConfig, message);
@@ -117,9 +110,24 @@ async function runPipeline(pipeline, processors, text, channelConfig, message) {
     return ctx;
 }
 
-// ─── 定时拉取 ────────────────────────────────────────────────
-
 let fetching = false;
+
+async function fetchNewMessages(ch, messageQueue, reason) {
+    const channelId = normalizeId(ch.id);
+    const lastId = getLastMessageId(channelId);
+    let count = 0;
+
+    for await (const msg of client.iterMessages(ch.id, {
+        reverse: true,
+        minId: lastId
+    })) {
+        if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
+    }
+
+    if (count > 0) {
+        console.log(`[${reason}] ${labelNoteOrId(ch)}: fetched ${count} new messages`);
+    }
+}
 
 async function fetchAll(enabledChannels, messageQueue) {
     if (fetching) return;
@@ -127,22 +135,9 @@ async function fetchAll(enabledChannels, messageQueue) {
     try {
         for (const ch of enabledChannels) {
             try {
-                const channelId = normalizeId(ch.id);
-                const lastId = getLastMessageId(channelId);
-                const msgs = await client.getMessages(ch.id, {
-                    limit: 20,
-                    minId: lastId
-                });
-
-                let count = 0;
-                for (const msg of [...msgs].reverse()) {
-                    if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
-                }
-                if (count > 0) {
-                    console.log(`🔄 [定时拉取] ${labelNoteOrId(ch)}: 拉取 ${count} 条新消息`);
-                }
+                await fetchNewMessages(ch, messageQueue, 'periodic fetch');
             } catch (e) {
-                console.error(`❌ [定时拉取] ${labelNoteOrId(ch)} 失败:`, e.message);
+                console.error(`[periodic fetch] ${labelNoteOrId(ch)} failed:`, e.message);
             }
 
             await new Promise(r => setTimeout(r, FETCH_STAGGER));
@@ -154,71 +149,54 @@ async function fetchAll(enabledChannels, messageQueue) {
 
 async function fetchChannel(ch, messageQueue) {
     try {
-        const channelId = normalizeId(ch.id);
-        const lastId = getLastMessageId(channelId);
-        const msgs = await client.getMessages(ch.id, {
-            limit: 20,
-            minId: lastId
-        });
-
-        let count = 0;
-        for (const msg of [...msgs].reverse()) {
-            if (messageQueue.enqueue(ch, msg, { fromFetch: true })) count++;
-        }
-        if (count > 0) {
-            console.log(`🔄 [gap 拉取] ${labelNoteOrId(ch)}: 拉取 ${count} 条消息`);
-        }
+        await fetchNewMessages(ch, messageQueue, 'gap fetch');
     } catch (e) {
-        console.error(`❌ [gap 拉取] ${labelNoteOrId(ch)} 失败:`, e.message);
+        console.error(`[gap fetch] ${labelNoteOrId(ch)} failed:`, e.message);
     }
 }
-
-// ─── 心跳重连 ─────────────────────────────────────────────────
 
 function startHeartbeat(enabledChannels, messageQueue) {
     heartbeatTimer = setInterval(async () => {
         try {
             if (client && !client.connected) {
-                console.warn('⚠️ 连接断开，尝试重连...');
+                console.warn('telegram connection lost, reconnecting...');
                 await client.connect();
-                console.log('✅ 重连成功，立即触发全频道拉取...');
-                fetchAll(enabledChannels, messageQueue);
+                console.log('telegram reconnected, starting catch-up fetch');
+                await fetchAll(enabledChannels, messageQueue);
             }
         } catch (err) {
-            console.error('❌ 重连失败:', err.message);
+            console.error('telegram reconnect failed:', err.message);
         }
     }, 30_000);
 }
-
-// ─── 启动 / 停止 ─────────────────────────────────────────────
 
 export const startMonitor = async () => {
     const { apiId, apiHash, session } = config.telegram.client;
 
     if (!apiId || !apiHash || !session) {
-        console.error('❌ 缺少 TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION');
+        console.error('missing TELEGRAM_API_ID / TELEGRAM_API_HASH / TELEGRAM_SESSION');
         process.exit(1);
     }
 
     if (!config.telegram.bot_token) {
-        console.error('❌ 缺少 TELEGRAM_BOT_TOKEN，无法转发消息');
+        console.error('missing TELEGRAM_BOT_TOKEN');
         process.exit(1);
     }
 
     const enabledChannels = config.telegram.channels.filter(ch => ch.enabled);
     if (enabledChannels.length === 0) {
-        console.warn('⚠️ 没有已启用的频道配置，退出');
+        console.warn('no enabled channels configured');
         return;
     }
 
     loadState();
     const processors = await loadProcessors();
 
-    console.log('🚀 TG Monitor 启动中...');
-    console.log(`📡 监听 ${enabledChannels.length} 个频道:`);
+    console.log('starting TG Monitor...');
+    console.log(`watching ${enabledChannels.length} channel(s)`);
     enabledChannels.forEach(ch => {
-        const pipe = ch.pipeline?.length ? ch.pipeline.join(' → ') : '(直接转发)';
-        console.log(`   - ${labelNoteOrId(ch)} (${ch.id})  [${pipe}]`);
+        const pipe = ch.pipeline?.length ? ch.pipeline.join(' -> ') : '(direct forward)';
+        console.log(` - ${labelNoteOrId(ch)} (${ch.id}) [${pipe}]`);
     });
 
     const stringSession = new StringSession(session);
@@ -230,44 +208,42 @@ export const startMonitor = async () => {
         onError: err => console.error('Telegram Client Error:', err)
     });
 
-    console.log('✅ Telegram Client 已连接');
+    console.log('telegram client connected');
 
     await client.getDialogs();
-    console.log('✅ 会话列表已同步');
+    console.log('dialog cache synced');
 
     for (const ch of enabledChannels) {
         try {
             const entity = await client.getEntity(ch.id);
-            if (entity.username) {
-                ch.link = `https://t.me/${entity.username}`;
-            } else {
-                ch.link = `https://t.me/c/${entity.id}`;
-            }
+            ch.link = entity.username
+                ? `https://t.me/${entity.username}`
+                : `https://t.me/c/${entity.id}`;
+
             const msgs = await client.getMessages(ch.id, { limit: 1 });
             const head = msgs[0];
-            const latest = head?.message || '(无文本/媒体消息)';
-            console.log(`  ✅ 已订阅: ${entity.title || ch.id} (${entity.id}) 最新消息: ${latest.substring(0, 50)}`);
+            const latest = head?.message || '(non-text or media message)';
+            console.log(`subscribed: ${entity.title || ch.id} (${entity.id}) latest: ${latest.substring(0, 50)}`);
+
             if (!FETCH_ON_START && head?.id != null) {
                 setLastMessageId(normalizeId(ch.id), head.id);
             }
         } catch (e) {
-            console.error(`  ❌ 订阅失败: ${labelNoteOrId(ch)} — ${e.message}`);
-            console.error(`     请确认该账号已加入此频道/群组`);
+            console.error(`subscribe failed: ${labelNoteOrId(ch)} - ${e.message}`);
+            console.error('make sure the account has joined this channel/group');
         }
     }
 
     if (!FETCH_ON_START) {
         flushState();
-        console.log('⏭️ FETCH_ON_START=false：已将各频道 lastMessageId 对齐到当前最新，跳过离线积压（仅处理之后的新消息）');
+        console.log('FETCH_ON_START=false, aligned cursors to latest messages');
     }
-
-    // ─── 消息处理回调 ─────────────────────────────────────────
 
     async function processMessage(channelConfig, message) {
         const text = message.message || '';
 
         console.log(
-            `📩 [${labelNoteOrId(channelConfig)}]: ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}`
+            `[${labelNoteOrId(channelConfig)}] ${text.substring(0, 80)}${text.length > 80 ? '...' : ''}`
         );
 
         const pipeline = channelConfig.pipeline || [];
@@ -280,12 +256,12 @@ export const startMonitor = async () => {
         if (mediaInfo && ctx.forwardMedia) {
             const docSize = message.media?.document?.size;
             if (docSize && Number(docSize) > MAX_MEDIA_BYTES) {
-                console.warn(`⚠️ 文件过大 (${(Number(docSize) / 1024 / 1024).toFixed(1)}MB)，跳过下载`);
+                console.warn(`media skipped because file is too large: ${(Number(docSize) / 1024 / 1024).toFixed(1)}MB`);
             } else {
                 try {
                     mediaBuffer = await client.downloadMedia(message);
                 } catch (e) {
-                    console.warn('⚠️ 媒体下载失败:', e.message);
+                    console.warn('media download failed:', e.message);
                 }
             }
         }
@@ -293,7 +269,9 @@ export const startMonitor = async () => {
         if (ctx.text || mediaBuffer) {
             const sourceTitle = labelNoteOrId(channelConfig);
             const sourceLink = channelConfig.link && message.id
-                ? `${channelConfig.link}/${message.id}` : null;
+                ? `${channelConfig.link}/${message.id}`
+                : null;
+
             await forwardToAllTargets(channelConfig, {
                 text: ctx.text,
                 mediaBuffer,
@@ -304,19 +282,15 @@ export const startMonitor = async () => {
         }
     }
 
-    // ─── MessageQueue 初始化 ──────────────────────────────────
-
     const channelMap = buildChannelMap(enabledChannels);
 
     const messageQueue = new MessageQueue({
         onProcess: processMessage,
         onGap: (channelConfig, lastId, newId) => {
-            console.warn(`⚠️ [${labelNoteOrId(channelConfig)}] 检测到消息 gap (${lastId} → ${newId})，触发拉取`);
+            console.warn(`[${labelNoteOrId(channelConfig)}] detected message gap (${lastId} -> ${newId}), fetching history`);
             fetchChannel(channelConfig, messageQueue);
         }
     });
-
-    // ─── 通道 1: Raw Update Handler（实时推送）─────────────────
 
     client.addEventHandler(async (update) => {
         try {
@@ -344,16 +318,14 @@ export const startMonitor = async () => {
 
             messageQueue.enqueue(matched, message);
         } catch (error) {
-            console.error('处理推送更新出错:', error.message);
+            console.error('failed to process pushed update:', error.message);
         }
     });
-
-    // ─── 通道 2: 定时拉取 ──────────────────────────────────────
 
     startHeartbeat(enabledChannels, messageQueue);
 
     if (FETCH_ON_START) {
-        console.log(`🔄 启动时拉取离线区间...`);
+        console.log('running startup catch-up fetch...');
         await fetchAll(enabledChannels, messageQueue);
     }
 
@@ -362,7 +334,7 @@ export const startMonitor = async () => {
         FETCH_INTERVAL
     );
 
-    console.log(`🟢 TG Monitor 运行中 (实时推送 + ${FETCH_INTERVAL / 1000}s 定时拉取)`);
+    console.log(`TG Monitor running (push + ${FETCH_INTERVAL / 1000}s fetch)`);
 };
 
 export const stopMonitor = async () => {
@@ -374,9 +346,11 @@ export const stopMonitor = async () => {
         clearInterval(fetchTimer);
         fetchTimer = null;
     }
+
     flushState();
+
     if (client) {
         await client.disconnect();
-        console.log('🔴 Telegram Client 已断开');
+        console.log('telegram client disconnected');
     }
 };

@@ -2,12 +2,14 @@ import { getLastMessageId, setLastMessageId } from './state.js';
 import { normalizeId } from './utils.js';
 
 const MAX_SEEN_PER_CHANNEL = 1000;
+const RETRY_DELAY_MS = 5_000;
 
 export class MessageQueue {
     constructor({ onProcess, onGap }) {
         this.seen = new Map();
         this.queues = new Map();
         this.draining = new Set();
+        this.retryTimers = new Map();
         this._gapPending = new Set();
         this.onProcess = onProcess;
         this.onGap = onGap;
@@ -54,6 +56,17 @@ export class MessageQueue {
         return true;
     }
 
+    _scheduleRetry(channelId) {
+        if (this.retryTimers.has(channelId)) return;
+
+        const timer = setTimeout(() => {
+            this.retryTimers.delete(channelId);
+            this._drain(channelId);
+        }, RETRY_DELAY_MS);
+
+        this.retryTimers.set(channelId, timer);
+    }
+
     async _drain(channelId) {
         if (this.draining.has(channelId)) return;
         this.draining.add(channelId);
@@ -68,11 +81,13 @@ export class MessageQueue {
 
                 try {
                     await this.onProcess(item.channelConfig, item.message);
+                    setLastMessageId(cid, item.message.id);
                 } catch (err) {
-                    console.error(`❌ 处理消息失败 [${cid}] msgId=${item.message.id}:`, err.message);
+                    console.error(`处理消息失败 [${cid}] msgId=${item.message.id}:`, err.message);
+                    q.unshift(item);
+                    this._scheduleRetry(channelId);
+                    break;
                 }
-
-                setLastMessageId(cid, item.message.id);
             }
         } finally {
             this.draining.delete(channelId);

@@ -26,6 +26,14 @@ function truncate(text, max) {
     return text.substring(0, max - 3) + '...';
 }
 
+function escapeHtml(text = '') {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 async function apiCall(method, body, isMultipart = false) {
     const axiosConfig = isMultipart ? { headers: body.getHeaders() } : {};
 
@@ -35,11 +43,11 @@ async function apiCall(method, body, isMultipart = false) {
             return res.data;
         } catch (err) {
             if (attempt === 5) {
-                console.error(`[tg] ❌ ${method} 失败:`, err.response?.data || err.message);
+                console.error(`[tg] ${method} failed:`, err.response?.data || err.message);
                 throw err;
             }
             const retryAfter = err.response?.data?.parameters?.retry_after || attempt;
-            console.log(`[tg] ⚠️ 第${attempt}次重试 (${retryAfter}s)...`);
+            console.log(`[tg] retry ${attempt}/${5} in ${retryAfter}s`);
             await new Promise(r => setTimeout(r, retryAfter * 1000));
         }
     }
@@ -59,7 +67,7 @@ async function sendText(text, chatId, threadId = null) {
 async function sendMedia(type, buffer, chatId, caption = '', threadId = null, fileName = 'file') {
     const method = MEDIA_METHODS[type];
     if (!method) {
-        console.warn(`[tg] ⚠️ 不支持的媒体类型: ${type}`);
+        console.warn(`[tg] unsupported media type: ${type}`);
         return null;
     }
 
@@ -75,25 +83,30 @@ async function sendMedia(type, buffer, chatId, caption = '', threadId = null, fi
     return apiCall(method, form, true);
 }
 
+function buildFooter(sourceLink, sourceTitle) {
+    const safeTitle = escapeHtml(sourceTitle);
+    if (!sourceLink) return ` - ${safeTitle}`;
+    return ` - <a href="${escapeHtml(sourceLink)}">${safeTitle}</a>`;
+}
+
 async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileName, sourceLink }, sourceTitle) {
     try {
         await rateLimiter.acquire(target.id);
-        const topicId = target.topicId ? parseInt(target.topicId) : null;
-
-        const footer = sourceLink
-            ? ` — <a href="${sourceLink}">${sourceTitle}</a>`
-            : ` — ${sourceTitle}`;
+        const topicId = target.topicId ? parseInt(target.topicId, 10) : null;
+        const safeText = escapeHtml(text || '');
+        const footer = buildFooter(sourceLink, sourceTitle);
 
         if (mediaBuffer && mediaType) {
-            const caption = text ? `${text}${footer}` : sourceTitle;
+            const caption = safeText ? `${safeText}${footer}` : escapeHtml(sourceTitle);
             await sendMedia(mediaType, mediaBuffer, target.id, caption, topicId, fileName);
-        } else if (text) {
-            await sendText(`${text}${footer}`, target.id, topicId);
+        } else if (safeText) {
+            await sendText(`${safeText}${footer}`, target.id, topicId);
         }
 
-        console.log(`✅ 已转发到 [${labelNoteOrId(target)}]`);
+        console.log(`forwarded to [${labelNoteOrId(target)}]`);
     } catch (error) {
-        console.error(`❌ 转发到 [${labelNoteOrId(target)}] 失败:`, error.message);
+        console.error(`forward to [${labelNoteOrId(target)}] failed:`, error.message);
+        throw error;
     }
 }
 
@@ -101,7 +114,16 @@ export const forwardToAllTargets = async (channelConfig, payload, sourceTitle) =
     const targets = channelConfig.to;
     if (!targets?.length) return;
 
-    await Promise.allSettled(
+    const results = await Promise.allSettled(
         targets.map(target => forwardToTelegram(target, payload, sourceTitle))
     );
+
+    const failedTargets = results
+        .map((result, index) => ({ result, target: targets[index] }))
+        .filter(({ result }) => result.status === 'rejected')
+        .map(({ target }) => labelNoteOrId(target));
+
+    if (failedTargets.length > 0) {
+        throw new Error(`forward failed for targets: ${failedTargets.join(', ')}`);
+    }
 };
