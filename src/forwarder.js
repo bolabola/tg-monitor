@@ -84,9 +84,14 @@ async function sendMedia(type, buffer, chatId, caption = '', threadId = null, fi
 }
 
 function buildFooter(sourceLink, sourceTitle) {
+    const sourceLabel = buildSourceLabel(sourceLink, sourceTitle);
+    return ` - ${sourceLabel}`;
+}
+
+function buildSourceLabel(sourceLink, sourceTitle) {
     const safeTitle = escapeHtml(sourceTitle);
-    if (!sourceLink) return ` - ${safeTitle}`;
-    return ` - <a href="${escapeHtml(sourceLink)}">${safeTitle}</a>`;
+    if (!sourceLink) return safeTitle;
+    return `<a href="${escapeHtml(sourceLink)}">${safeTitle}</a>`;
 }
 
 async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileName, sourceLink }, sourceTitle) {
@@ -97,7 +102,7 @@ async function forwardToTelegram(target, { text, mediaBuffer, mediaType, fileNam
         const footer = buildFooter(sourceLink, sourceTitle);
 
         if (mediaBuffer && mediaType) {
-            const caption = safeText ? `${safeText}${footer}` : escapeHtml(sourceTitle);
+            const caption = safeText ? `${safeText}${footer}` : buildSourceLabel(sourceLink, sourceTitle);
             await sendMedia(mediaType, mediaBuffer, target.id, caption, topicId, fileName);
         } else if (safeText) {
             await sendText(`${safeText}${footer}`, target.id, topicId);

@@ -21,6 +21,16 @@ const FETCH_STAGGER = 500;
 const FETCH_ON_START = (process.env.FETCH_ON_START || process.env.CATCHUP_ON_START) !== 'false';
 const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
 
+function buildChannelBaseLink(channel) {
+    if (channel.link) return channel.link;
+
+    const username = channel.username?.replace(/^@/, '').trim();
+    if (username) return `https://t.me/${username}`;
+
+    if (channel.id != null) return `https://t.me/c/${normalizeId(channel.id)}`;
+    return null;
+}
+
 function buildChannelMap(channels) {
     const map = new Map();
     for (const ch of channels) {
@@ -228,11 +238,13 @@ export const startMonitor = async () => {
     console.log('dialog cache synced');
 
     for (const ch of enabledChannels) {
+        ch.link = buildChannelBaseLink(ch);
+
         try {
             const entity = await client.getEntity(ch.id);
             ch.link = entity.username
                 ? `https://t.me/${entity.username}`
-                : `https://t.me/c/${entity.id}`;
+                : buildChannelBaseLink(ch);
 
             const msgs = await client.getMessages(ch.id, { limit: 1 });
             const head = msgs[0];
@@ -290,8 +302,9 @@ export const startMonitor = async () => {
 
         if (ctx.text || mediaBuffer) {
             const sourceTitle = labelNoteOrId(channelConfig);
-            const sourceLink = channelConfig.link && message.id
-                ? `${channelConfig.link}/${message.id}`
+            const sourceBaseLink = buildChannelBaseLink(channelConfig);
+            const sourceLink = sourceBaseLink && message.id
+                ? `${sourceBaseLink}/${message.id}`
                 : null;
 
             await forwardToAllTargets(channelConfig, {
