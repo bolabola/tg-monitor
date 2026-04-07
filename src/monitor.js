@@ -6,7 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import config from './config.js';
 import { forwardToAllTargets } from './forwarder.js';
-import { loadState, getLastMessageId, setLastMessageId, flushState } from './state.js';
+import { loadState, getLastMessageId, hasLastMessageId, setLastMessageId, flushState } from './state.js';
 import { MessageQueue } from './queue.js';
 import { normalizeId, labelNoteOrId } from './utils.js';
 
@@ -239,8 +239,16 @@ export const startMonitor = async () => {
             const latest = head?.message || '(non-text or media message)';
             console.log(`subscribed: ${entity.title || ch.id} (${entity.id}) latest: ${latest.substring(0, 50)}`);
 
+            const channelId = normalizeId(ch.id);
+
             if (!FETCH_ON_START && head?.id != null) {
-                setLastMessageId(normalizeId(ch.id), head.id);
+                setLastMessageId(channelId, head.id);
+            } else if (FETCH_ON_START && head?.id != null && !hasLastMessageId(channelId)) {
+                const bootstrapCursor = Math.max(head.id - 1, 0);
+                setLastMessageId(channelId, bootstrapCursor);
+                console.log(
+                    `[startup] ${labelNoteOrId(ch)} has no cursor, bootstrapping to latest-only mode at ${bootstrapCursor}`
+                );
             }
         } catch (e) {
             console.error(`subscribe failed: ${labelNoteOrId(ch)} - ${e.message}`);

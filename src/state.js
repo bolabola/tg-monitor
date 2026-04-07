@@ -48,6 +48,10 @@ export function getLastMessageId(channelId) {
     return state[channelId]?.lastMessageId || 0;
 }
 
+export function hasLastMessageId(channelId) {
+    return Number.isInteger(state[channelId]?.lastMessageId);
+}
+
 export function setLastMessageId(channelId, messageId) {
     if (!state[channelId]) state[channelId] = {};
     state[channelId].lastMessageId = messageId;
