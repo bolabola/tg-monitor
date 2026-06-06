@@ -174,6 +174,31 @@ curl "https://api.telegram.org/bot你的TOKEN/getUpdates" | jq '.result[-1].mess
 
 多源时，**`to` 只在规则顶层写一份**，该条规则里所有 `source` 共用同一组转发目标。**`enabled`、`pipeline` 以规则顶层为公共默认**；某个源需要不同行为时，在对应的 **`source` / `source[]` 对象**里写 `enabled` 或 `pipeline`，**有则覆盖，没有则用公共的**。
 
+### 黑名单
+
+黑名单由 `handlers/blacklist.js` 处理，关键词写在项目根目录的 `blacklist.txt`，一行一个关键词。消息原文包含任一关键词时，handler 返回 `null`，后续 pipeline 不再执行，也不会转发；匹配大小写不敏感。
+
+要启用黑名单，需要在 `pipeline` 中加入 `"blacklist"`，通常放在 `"translate"` 前面。
+
+`blacklist.txt` 示例：
+
+```text
+spam
+广告
+```
+
+```json
+{
+    "enabled": true,
+    "pipeline": ["blacklist", "translate"],
+    "source": [
+        { "id": "-1001111111111", "note": "源 A" },
+        { "id": "-1002222222222", "note": "源 B", "pipeline": ["blacklist"] }
+    ],
+    "to": { "id": "-1003333333333", "note": "汇总群" }
+}
+```
+
 ### 源与目标
 
 - **每个源 Chat ID 全局只能出现一次**（含同一条规则里的 `source` 数组也不能写重复 id）；违反则启动时报错退出。每个源展开后有**唯一**的 `enabled` / `pipeline`（规则默认 + 源上可选覆盖）。

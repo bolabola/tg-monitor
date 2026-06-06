@@ -1,0 +1,4 @@
+# One keyword per line. Messages containing any keyword are skipped by handlers/blacklist.js.
+# Example:
+# spam
+# 广告
