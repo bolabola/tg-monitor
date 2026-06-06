@@ -2,3 +2,4 @@
 # Example:
 # spam
 # 广告
+vpn
