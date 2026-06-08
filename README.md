@@ -262,6 +262,7 @@ spam
 |--------|------|
 | `translate` | 检测语言，非中文自动翻译为中文（需配置 DeepSeek API Key） |
 | `noMedia` | 仅转发文本，不转发图片/视频/文件 |
+| `noVideo` | 视频消息只转发文本，不转发视频文件 |
 | `example` | 示例 — 只提取消息第一行 |
 
 ### 配置示例
@@ -271,6 +272,7 @@ spam
 "pipeline": ["translate"]               // 转发并自动翻译
 "pipeline": ["noMedia"]                 // 只转发文本
 "pipeline": ["noMedia", "translate"]    // 只转发文本 + 翻译
+"pipeline": ["noVideo"]                 // 视频消息只转发文本，其他媒体照常转发
 ```
 
 ### 自定义处理器
@@ -315,5 +317,6 @@ tg-monitor/
 └── handlers/
     ├── translate.js         # 翻译处理器
     ├── noMedia.js           # 过滤媒体处理器
+    ├── noVideo.js           # 过滤视频处理器
     └── example.js           # 示例处理器
 ```
